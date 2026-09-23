@@ -24,6 +24,7 @@ libnghttp2-sys = { optional = true, version = "0.1.3" }
 [dependencies.rustls-ffi]
 version = "0.15"
 optional = true
+default-features = false
 features = ["no_log_capture", "ring"]
 
 [target.'cfg(all(unix))'.dependencies]
