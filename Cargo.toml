@@ -15,7 +15,13 @@ edition = "2018"
 [dependencies]
 libc = "0.2.42"
 curl-sys = { path = "curl-sys", version = "0.4.83", default-features = false }
+
+[target.'cfg(not(target_os = "scarlet"))'.dependencies]
 socket2 = "0.6.0"
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+scarlet-abi = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6e5c88a2b7ef4bfc019e237a8fdad93bab09c785" }
+scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6e5c88a2b7ef4bfc019e237a8fdad93bab09c785" }
 
 # Unix platforms use OpenSSL for now to provide SSL functionality
 [target.'cfg(all(unix))'.dependencies]

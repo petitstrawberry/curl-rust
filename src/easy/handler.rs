@@ -10,6 +10,7 @@ use std::str;
 use std::time::Duration;
 
 use libc::{c_char, c_double, c_int, c_long, c_ulong, c_void, size_t};
+#[cfg(not(target_os = "scarlet"))]
 use socket2::Socket;
 
 use crate::easy::form;
@@ -278,23 +279,57 @@ pub trait Handler {
         socktype: c_int,
         protocol: c_int,
     ) -> Option<curl_sys::curl_socket_t> {
-        // Note that we override this to calling a function in `socket2` to
-        // ensure that we open all sockets with CLOEXEC. Otherwise if we rely on
-        // libcurl to open sockets it won't use CLOEXEC.
-        return Socket::new(family.into(), socktype.into(), Some(protocol.into()))
-            .ok()
-            .map(cvt);
-
-        #[cfg(unix)]
-        fn cvt(socket: Socket) -> curl_sys::curl_socket_t {
-            use std::os::unix::prelude::*;
-            socket.into_raw_fd()
+        #[cfg(target_os = "scarlet")]
+        {
+            use scarlet_abi::Syscall;
+            // Scarlet's Native networking path currently implements IPv4
+            // connections. Let libcurl try another address after an IPv6 one.
+            if family == 10 {
+                return None;
+            }
+            // Native handles are the C file descriptors used by libcurl.
+            let handle = unsafe {
+                scarlet_sys::syscall3(
+                    Syscall::SocketCreate,
+                    family as usize,
+                    socktype as usize,
+                    protocol as usize,
+                )
+            };
+            if handle == usize::MAX || handle > c_int::MAX as usize {
+                return None;
+            }
+            // Match the socket2 path: a socket must not leak into a child
+            // process if Cargo invokes rustc while an HTTP transfer is live.
+            let flags =
+                unsafe { scarlet_sys::syscall2(Syscall::HandleSetDescriptorFlags, handle, 1) };
+            if flags != 0 {
+                unsafe { scarlet_sys::syscall1(Syscall::HandleClose, handle) };
+                return None;
+            }
+            return Some(handle as curl_sys::curl_socket_t);
         }
 
-        #[cfg(windows)]
-        fn cvt(socket: Socket) -> curl_sys::curl_socket_t {
-            use std::os::windows::prelude::*;
-            socket.into_raw_socket()
+        #[cfg(not(target_os = "scarlet"))]
+        {
+            // Note that we override this to calling a function in `socket2` to
+            // ensure that we open all sockets with CLOEXEC. Otherwise if we rely on
+            // libcurl to open sockets it won't use CLOEXEC.
+            return Socket::new(family.into(), socktype.into(), Some(protocol.into()))
+                .ok()
+                .map(cvt);
+
+            #[cfg(unix)]
+            fn cvt(socket: Socket) -> curl_sys::curl_socket_t {
+                use std::os::unix::prelude::*;
+                socket.into_raw_fd()
+            }
+
+            #[cfg(windows)]
+            fn cvt(socket: Socket) -> curl_sys::curl_socket_t {
+                use std::os::windows::prelude::*;
+                socket.into_raw_socket()
+            }
         }
     }
 }
@@ -3376,6 +3411,14 @@ impl<H> Easy2<H> {
         use std::os::unix::prelude::*;
         let s = CString::new(val.as_os_str().as_bytes())?;
         self.setopt_str(opt, &s)
+    }
+
+    #[cfg(target_os = "scarlet")]
+    fn setopt_path(&mut self, opt: curl_sys::CURLoption, val: &Path) -> Result<(), Error> {
+        match val.to_str() {
+            Some(s) => self.setopt_str(opt, &CString::new(s)?),
+            None => Err(Error::new(curl_sys::CURLE_CONV_FAILED)),
+        }
     }
 
     #[cfg(windows)]

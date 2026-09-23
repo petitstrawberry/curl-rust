@@ -16,6 +16,11 @@ use libc::{c_char, c_double, c_int, c_long, c_short, c_uint, c_void, size_t, tim
 
 #[cfg(unix)]
 pub use libc::fd_set;
+#[cfg(target_os = "scarlet")]
+#[repr(C)]
+pub struct fd_set {
+    pub fds_bits: [libc::c_ulong; 16],
+}
 #[cfg(windows)]
 pub use windows_sys::Win32::Networking::WinSock::FD_SET as fd_set;
 #[cfg(windows)]
@@ -36,9 +41,9 @@ pub type curl_off_t = i64;
 
 pub enum CURL {}
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "scarlet"))]
 pub type curl_socket_t = libc::c_int;
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "scarlet"))]
 pub const CURL_SOCKET_BAD: curl_socket_t = -1;
 #[cfg(all(windows, target_pointer_width = "32"))]
 pub type curl_socket_t = libc::c_uint;

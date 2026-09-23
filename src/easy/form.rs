@@ -338,7 +338,7 @@ impl<'form, 'data> Part<'form, 'data> {
         self.bytes2cstr(p.as_os_str().as_bytes())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "scarlet"))]
     fn path2cstr(&mut self, p: &Path) -> Option<CString> {
         match p.to_str() {
             Some(bytes) => self.bytes2cstr(bytes.as_bytes()),

@@ -15,9 +15,12 @@ fn main() {
     );
     let target = env::var("TARGET").unwrap();
     let windows = target.contains("windows");
+    let scarlet = target.ends_with("-scarlet");
 
     if cfg!(feature = "mesalink") {
-        println!("cargo:warning=MesaLink support has been removed as of curl 7.82.0, will use default TLS backend instead.");
+        println!(
+            "cargo:warning=MesaLink support has been removed as of curl 7.82.0, will use default TLS backend instead."
+        );
     }
 
     // This feature trumps all others, and is largely set by rustbuild to force
@@ -129,8 +132,6 @@ fn main() {
         .define("CURL_DISABLE_TELNET", None)
         .define("CURL_DISABLE_TFTP", None)
         .define("CURL_STATICLIB", None)
-        .define("ENABLE_IPV6", None)
-        .define("HAVE_SOCKADDR_IN6_SIN6_SCOPE_ID", None)
         .define("HAVE_ASSERT_H", None)
         .define("CURL_OS", "\"unknown\"") // TODO
         .define("HAVE_ZLIB_H", None)
@@ -186,6 +187,7 @@ fn main() {
         .file("curl/lib/headers.c")
         .file("curl/lib/hmac.c")
         .file("curl/lib/hostip.c")
+        .file("curl/lib/hostip4.c")
         .file("curl/lib/hostip6.c")
         .file("curl/lib/hsts.c")
         .file("curl/lib/http.c")
@@ -250,6 +252,22 @@ fn main() {
         .define("HAVE_GETPEERNAME", None)
         .define("HAVE_GETSOCKNAME", None)
         .warnings(false);
+
+    if scarlet {
+        // These paths require libc APIs or Native socket families which are
+        // not available on Scarlet yet.
+        cfg.define("CURL_DISABLE_AWS", None);
+        cfg.define("HAVE_GETADDRINFO_THREADSAFE", None);
+        // Use Scarlet's OS-managed trust store as libcurl's default CA file.
+        // CURLOPT_CAINFO can still override this per application.
+        cfg.define("CURL_CA_BUNDLE", "\"/etc/ssl/certs/ca-certificates.crt\"");
+        // Scarlet resolves through resolverd. Keep libcurl's POSIX locking,
+        // but avoid its additional pthread-backed DNS worker for now.
+        cfg.define("SCARLET_CURL_SYNC_RESOLVER", None);
+    } else {
+        cfg.define("ENABLE_IPV6", None)
+            .define("HAVE_SOCKADDR_IN6_SIN6_SCOPE_ID", None);
+    }
 
     if cfg!(feature = "ntlm") {
         cfg.file("curl/lib/curl_des.c")
@@ -387,11 +405,8 @@ fn main() {
             .define("HAVE_SEND", None)
             .define("HAVE_SOCKET", None)
             .define("HAVE_STERRROR_R", None)
-            .define("HAVE_SOCKETPAIR", None)
             .define("HAVE_STRUCT_TIMEVAL", None)
-            .define("HAVE_SYS_UN_H", None)
             .define("USE_THREADS_POSIX", None)
-            .define("USE_UNIX_SOCKETS", None)
             .define("RECV_TYPE_ARG2", "void*")
             .define("RECV_TYPE_ARG3", "size_t")
             .define("RECV_TYPE_ARG4", "int")
@@ -405,6 +420,12 @@ fn main() {
             .define("SIZEOF_CURL_OFF_T", "8")
             .define("SIZEOF_INT", "4")
             .define("SIZEOF_SHORT", "2");
+
+        if !scarlet {
+            cfg.define("HAVE_SOCKETPAIR", None)
+                .define("HAVE_SYS_UN_H", None)
+                .define("USE_UNIX_SOCKETS", None);
+        }
 
         if target.contains("-apple-") {
             cfg.define("__APPLE__", None)
